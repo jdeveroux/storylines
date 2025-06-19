@@ -1,15 +1,27 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
-import { User, Crown, Info } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Platform } from 'react-native';
+import { User, Crown, Info, Volume2, VolumeX } from 'lucide-react-native';
 import { CampaignMessage } from '../atoms/campaignHistoryAtoms';
 import { getCharacterAvatarUrl } from '../utils/avatarStorage';
 import DiceRoll from './DiceRoll';
+import { Audio } from 'expo-av';
 
 interface StoryEventItemProps {
   message: CampaignMessage;
 }
 
 export default function StoryEventItem({ message }: StoryEventItemProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+
+  // Cleanup sound when component unmounts
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
 
   // Generate consistent dice roll based on message ID (for testing)
   const getTestDiceRoll = () => {
@@ -97,6 +109,78 @@ export default function StoryEventItem({ message }: StoryEventItemProps) {
 
   const eventStyles = getEventStyles();
 
+  const handleSpeakerPress = async () => {
+    // If already playing, stop the current playback
+    if (isPlaying && sound) {
+      await sound.stopAsync();
+      setIsPlaying(false);
+      setSound(null);
+      return;
+    }
+
+    try {
+      // Use ElevenLabs API to convert text to speech
+      // For now, we'll use a simple approach with the Web Speech API on web
+      // and a placeholder for native platforms
+      if (Platform.OS === 'web') {
+        // Web Speech API is available on web
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(message.message);
+          
+          // Set voice based on message type
+          const voices = window.speechSynthesis.getVoices();
+          if (voices.length > 0) {
+            if (message.message_type === 'dm') {
+              // Find a deeper voice for DM
+              const deepVoice = voices.find(v => v.name.includes('Male') || v.name.toLowerCase().includes('deep'));
+              if (deepVoice) utterance.voice = deepVoice;
+            } else if (message.message_type === 'player') {
+              // Find a suitable voice for player
+              const playerVoice = voices.find(v => 
+                message.character_name && 
+                ((message.character_name.toLowerCase().includes('female') && v.name.includes('Female')) ||
+                 (!message.character_name.toLowerCase().includes('female') && v.name.includes('Male')))
+              );
+              if (playerVoice) utterance.voice = playerVoice;
+            }
+          }
+          
+          // Set rate and pitch
+          utterance.rate = 1.0;
+          utterance.pitch = message.message_type === 'dm' ? 0.9 : 1.1;
+          
+          // Event handlers
+          utterance.onstart = () => setIsPlaying(true);
+          utterance.onend = () => setIsPlaying(false);
+          utterance.onerror = () => setIsPlaying(false);
+          
+          window.speechSynthesis.speak(utterance);
+        } else {
+          console.log('Web Speech API not supported');
+        }
+      } else {
+        // For native platforms, use Expo AV
+        setIsPlaying(true);
+        
+        // Create a new sound object
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: 'https://example.com/placeholder-audio.mp3' }, // Replace with actual TTS API call
+          { shouldPlay: true },
+          (status) => {
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+            }
+          }
+        );
+        
+        setSound(newSound);
+      }
+    } catch (error) {
+      console.error('Error playing text-to-speech:', error);
+      setIsPlaying(false);
+    }
+  };
+
   return (
     <View style={[styles.container, eventStyles.container]}>
       <View style={[styles.header, eventStyles.header]}>
@@ -106,12 +190,25 @@ export default function StoryEventItem({ message }: StoryEventItemProps) {
            message.message_type === 'player' ? (message.character_name || message.author) : 
            'System'}
         </Text>
-        <Text style={styles.timestamp}>
-          {new Date(message.timestamp).toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          })}
-        </Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.speakerButton}
+            onPress={handleSpeakerPress}
+            activeOpacity={0.7}
+          >
+            {isPlaying ? (
+              <VolumeX size={18} color="#ccc" />
+            ) : (
+              <Volume2 size={18} color="#ccc" />
+            )}
+          </TouchableOpacity>
+          <Text style={styles.timestamp}>
+            {new Date(message.timestamp).toLocaleTimeString([], { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })}
+          </Text>
+        </View>
       </View>
       <View style={styles.contentContainer}>
         <Text style={[styles.content, eventStyles.text]}>
@@ -169,6 +266,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Bold',
     marginLeft: 8,
     flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  speakerButton: {
+    padding: 5,
+    marginRight: 8,
   },
   timestamp: {
     fontSize: 12,
