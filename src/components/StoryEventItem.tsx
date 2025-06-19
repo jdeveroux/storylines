@@ -159,21 +159,15 @@ export default function StoryEventItem({ message }: StoryEventItemProps) {
           console.log('Web Speech API not supported');
         }
       } else {
-        // For native platforms, use Expo AV
+        // For native platforms, text-to-speech is not yet implemented
+        // TODO: Implement proper TTS API integration for native platforms
+        console.log('Text-to-speech not yet implemented for native platforms');
+        
+        // Provide visual feedback that the feature is not available
         setIsPlaying(true);
-        
-        // Create a new sound object
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: 'https://example.com/placeholder-audio.mp3' }, // Replace with actual TTS API call
-          { shouldPlay: true },
-          (status) => {
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-            }
-          }
-        );
-        
-        setSound(newSound);
+        setTimeout(() => {
+          setIsPlaying(false);
+        }, 1000);
       }
     } catch (error) {
       console.error('Error playing text-to-speech:', error);
